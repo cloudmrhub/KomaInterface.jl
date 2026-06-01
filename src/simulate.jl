@@ -23,7 +23,6 @@ const VecF64 = Vector{Float64}
 function load_phantom(path::String)
     isfile(path) || throw(ArgumentError("unable to find file at \"$path\""))
     if endswith(path, ".h5") || endswith(path, ".hdf5")
-        HDF5_AVAILABLE || error("HDF5.jl not installed. Run: `] add HDF5`")
         f = h5open(path,"r")
         data = Dict(k => collect(f[k]) for k in keys(f))
     else
