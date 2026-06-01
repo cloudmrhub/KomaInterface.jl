@@ -1,0 +1,2 @@
+using KomaInterface
+KomaInterface.main()

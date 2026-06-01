@@ -1,0 +1,24 @@
+name = "KomaInterface"
+uuid = "9794c921-2f20-4b80-af8f-6c29bed33f82"
+version = "0.1.0"
+authors = ["José E. Cruz Serrallés <Jose.CruzSerralles@nyulangone.org>"]
+
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+KomaMRI = "6a340f8b-2cdf-4c04-99be-4953d9b66d0a"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
+StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+
+[compat]
+ArgParse = "1.2.0"
+HDF5 = "0.17.3"
+JSON = "0.21.4"
+KomaMRI = "0.10.4"
+LinearAlgebra = "1.12.0"
+Logging = "1.11.0"
+NPZ = "0.4.3"
+StructArrays = "0.7.3"
