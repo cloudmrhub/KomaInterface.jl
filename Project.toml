@@ -1,7 +1,7 @@
 name = "KomaInterface"
 uuid = "9794c921-2f20-4b80-af8f-6c29bed33f82"
 version = "0.1.0"
-authors = ["José E. Cruz Serrallés <Jose.CruzSerralles@nyulangone.org>"]
+authors = ["José E. Cruz Serrallés <Jose.CruzSerralles@nyulangone.org>", "Eros Montin <Eros.Montin@nyulangone.org>"]
 
 [deps]
 ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
