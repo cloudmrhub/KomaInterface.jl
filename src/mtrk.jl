@@ -97,41 +97,13 @@ function read_seq_mtrk(filename)
     raw_dict = JSON.parse(read(filename,String))
     dict = (;((Symbol(k),raw_dict[k]) for k in ("instructions","objects","arrays","equations","infos","settings"))...)
     haskey(dict.instructions,"main") || throw(ArgumentError("\"main\" block was not defined in \"instructions\" block"))
-    
-    # Artificially adding a "mark" at the end of any block that does not end with a "mark"
-    @debug "Checking for missing \"mark\"s..."
-    for block in values(dict.instructions)
-        steps = block["steps"]
-        if !isempty(last(steps)["action"]) && last(steps)["action"] == "submit" && steps[end-1]["action"]!="mark" && steps[end-1]["action"]!="run_block" && steps[end-1]["action"]!="loop"
-            end_time = 0.0
-            for event in steps
-                if haskey(event,"time")
-                    start_time = event["time"]
-                    duration = dict.objects[event["object"]]["duration"]
-                    end_time = max(end_time,start_time + duration)
-                end
-            end
-            push!(steps,Dict{String,Any}("action" => "mark","time" => end_time))
-            # Add a mark event with its time set to the duration of the previous block. 
-        end
-    end
-
-   # assign mark if missing
-    @debug "Assigning missing \"mark\"s..."
-    for block in values(dict.instructions)
-        steps = block["steps"]
-        any(step["action"] ∈ (("loop","run_block")) for step in steps) && continue
-        filter!(∈(("rf","grad","adc","mark"))∘_getindex("action"),steps)
-        if last(steps)["action"] != "mark"
-            push!(steps,Dict{String,Any}("action" => "mark","time" => maximum(s -> step["time"]+step["duration"],steps)))
-        end
-    end
 
     ## Interpreting time equations
     for block in values(dict.instructions)
         steps = block["steps"]
         for step in steps
-            if haskey(step,"time") && typeof(step["time"]) != Int
+            if haskey(step,"time") && !(step["time"] isa Integer)
+                haskey(step["time"],"equation") || throw(ArgumentError("step[\"time\"] must have an \"equation\" field: step = $step"))
                 equation_name = step["time"]["equation"]
                 # Replace set(<variable>) with its value from dict.settings
                 equation_str = string(dict.equations[equation_name]["equation"])
@@ -146,6 +118,41 @@ function read_seq_mtrk(filename)
             end
         end
     end
+
+    @debug "" dict.instructions["block_SE"]["steps"]
+    
+    # Artificially adding a "mark" at the end of any block that does not end with a "mark"
+    @debug "Checking for missing \"mark\"s..."
+    for block in values(dict.instructions)
+        steps = block["steps"]
+        if !isempty(last(steps)["action"]) && last(steps)["action"] == "submit" && steps[end-1]["action"]!="mark" && steps[end-1]["action"]!="run_block" && steps[end-1]["action"]!="loop"
+            end_time = 0
+            for event in steps
+                if haskey(event,"time")
+                    start_time = event["time"]
+                    duration = dict.objects[event["object"]]["duration"]
+                    end_time = max(end_time,start_time + duration)
+                end
+            end
+            push!(steps,Dict{String,Any}("action" => "mark","time" => end_time))
+            # Add a mark event with its time set to the duration of the previous block. 
+        end
+    end
+
+    @debug "" dict.instructions["block_SE"]["steps"]
+
+    # assign mark if missing
+    @debug "Assigning missing \"mark\"s..."
+    for block in values(dict.instructions)
+        steps = block["steps"]
+        any(step["action"] ∈ (("loop","run_block")) for step in steps) && continue
+        filter!(∈(("rf","grad","adc","mark"))∘_getindex("action"),steps)
+        if !any(≠("mark")∘_getindex("action"),steps)
+            push!(steps,Dict{String,Any}("action" => "mark","time" => maximum(s -> step["time"]+step["duration"],steps)))
+        end
+    end
+
+    @debug "" dict.instructions["block_SE"]["steps"]
 
     # Flatten instructions: unroll loops and run_block actions into a flat step list
     @debug "Unrolling instructions..."
@@ -185,6 +192,8 @@ function read_seq_mtrk(filename)
         end
     end
 
+    @debug "Before offsets" steps[1:10]
+
     # update times to reflect global timing
     offset = zero(first(steps)["time"])
     for step in steps
@@ -195,10 +204,13 @@ function read_seq_mtrk(filename)
         end
     end
 
+    @debug "After offsets, before filtering" steps[1:10]
 
     # keep relevant events and sort by start time
     filter!(∈(("rf","grad","adc"))∘_getindex("action"),steps)
     sort!(steps,by=_getindex("time"))
+
+    @debug "After filtering" steps[1:10]
 
     # get amplitudes, durations, and stop times
     @debug "Processing individual steps..."
@@ -304,9 +316,7 @@ function read_seq_mtrk(filename)
                   adc= ADC(A[5],1e-6durs[5]),
                   dur
             )
-            if isempty(seq)
-                foreach((k,delay)->setfield!(getfield(new_step,k),:delay,1e-6*delay),keys(A),delays)
-            end
+            foreach((k,delay)->setfield!(getfield(new_step,k),:delay,1e-6*delay),keys(A),delays)
             push!(seq,new_step)
         end
         i = max(j,i+1)
