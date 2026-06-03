@@ -1,3 +1,6 @@
+# mtrk parser by José E. Cruz Serrallés (Jose.CruzSerralles@nyulangone.org)
+# based on the work by Anaïs Artiges and Tobias Block
+
 """
     seq = read_seq(filename)
 
@@ -24,7 +27,6 @@ _getindex(key::Key) where {Key} = Base.Fix2(Base.getindex,key)
 # Helper function: returns a function that gets the given field from a struct
 _getfield(s::Symbol) = Base.Fix2(Base.getfield,s)
 
-
 # Truncates the amplitude or samples of a step to fit within [start, stop]
 function pad(x::AbstractArray{T,N},p::NTuple{N,Int}) where {T,N}
     y = similar(x,p)
@@ -37,6 +39,8 @@ function pad!(x::AbstractVector{T},p::Int) where {T}
 end
 padto!(x::AbstractVector,n::Int) = pad!(x,max(0,n-length(x)))
 function padded!(X::Vararg{AbstractVector,N}) where {N}
+    typeassert(N,Integer)
+    (iszero(N) || isone(N)) && return X
     M = maximum(length,X)
     for x in X
         append!(x,zeros(M-length(x)))
@@ -45,49 +49,24 @@ function padded!(X::Vararg{AbstractVector,N}) where {N}
 end
 padded(X::Vararg{AbstractVector,N}) where {N} = padded!(copy.(X)...)
 
-function truncate_step!(step::Dict{String,Any},start::Int,stop::Int)
-    step_start = step["time"]
-    step_stop = step["stop"]
-    step_dur = step_stop-step_start
-    
-    if haskey(step,"samples")
-        Na = step["samples"]
-        isone(Na) && return step
-        !iszero(step_dur % Na) && throw(DomainError((;step_duration=step_dur,samples=Na),"step duration must be a multiple of samples"))
-        Δt = step_dur÷Na
-    else
-        amp = get(step,"amplitude",ComplexF64[])
-        Na = length(amp)
-        Δt = step_dur÷Na
-    end
-    istart =  1+max((start-step_start)÷Δt,0)
-    istop  = Na+min(( stop-step_stop )÷Δt,0)
-    if start < 1000
-        @debug "Truncating with Na = $Na" start stop step_start step_stop Na istart istop
-    end
-    if haskey(step,"samples")
-        step["samples"] = istop-istart+1
-    elseif !isempty(amp)
-        keepat!(amp,istart:istop)
-    end
-    step["time"] = start
-    step["stop"] = stop
-    return step
+function _findfirst(f::Function,itr::A) where {A}
+    i = findfirst(f,itr)
+    return isnothing(i) ? nextind(itr,lastindex(itr)) : i
 end
 
-# Overloads for truncate_step! to accept tuples
-truncate_step!(step,t::NTuple{2,Int}) = truncate_step!(step,t...)
-truncate_step!(t::NTuple{2,Int}) = Base.Fix2(truncate_step!,t)
-
-# Initial implementation by Anaïs Artiges (Anais.Artiges@nyulangone.org)
-# Edited and improved by José E. Cruz Serrallés (Jose.CruzSerralles@nyulangone.org)
-
-# Main function to read and process an mtrk sequence file
 function getamp(steps,::Type{T}=Float64) where {T}
     isempty(steps) && return T[]
     isone(length(steps)) && return first(steps)["amplitude"]
     amps = padded(map(_getindex("amplitude"),steps)...)
     return sum(amps)
+end
+function log_instructions(instructions::Dict)
+    return (Symbol(k) => instructions[k]["steps"] for k in keys(instructions) if haskey(instructions[k],"steps"))
+end
+function block_steps(steps,start::Int,stop::Int)
+    upper = searchsortedlast(steps,Dict{String,Any}("time"=>stop-1);by=_getindex("time"))
+    lower = _findfirst(≤(start)∘_getindex("time"),view(steps,Base.OneTo(upper)))
+    return view(steps,lower:upper)
 end
 function read_seq_mtrk(filename)
     isfile(filename) || throw(ArgumentError("unable to find \"$filename\""))
@@ -119,45 +98,22 @@ function read_seq_mtrk(filename)
         end
     end
 
-    @debug "" dict.instructions["block_SE"]["steps"]
-    
-    # Artificially adding a "mark" at the end of any block that does not end with a "mark"
-    @debug "Checking for missing \"mark\"s..."
+    @debug "Assigning missing mark events" log_instructions(dict.instructions)...
     for block in values(dict.instructions)
         steps = block["steps"]
-        if !isempty(last(steps)["action"]) && last(steps)["action"] == "submit" && steps[end-1]["action"]!="mark" && steps[end-1]["action"]!="run_block" && steps[end-1]["action"]!="loop"
-            end_time = 0
-            for event in steps
-                if haskey(event,"time")
-                    start_time = event["time"]
-                    duration = dict.objects[event["object"]]["duration"]
-                    end_time = max(end_time,start_time + duration)
-                end
-            end
-            push!(steps,Dict{String,Any}("action" => "mark","time" => end_time))
-            # Add a mark event with its time set to the duration of the previous block. 
-        end
-    end
-
-    @debug "" dict.instructions["block_SE"]["steps"]
-
-    # assign mark if missing
-    @debug "Assigning missing \"mark\"s..."
-    for block in values(dict.instructions)
-        steps = block["steps"]
-        any(step["action"] ∈ (("loop","run_block")) for step in steps) && continue
+        any(step["action"] ∈ ("loop","run_block") for step in steps) && continue
         filter!(∈(("rf","grad","adc","mark"))∘_getindex("action"),steps)
-        if !any(≠("mark")∘_getindex("action"),steps)
-            push!(steps,Dict{String,Any}("action" => "mark","time" => maximum(s -> step["time"]+step["duration"],steps)))
+        any(≠("mark")∘_getindex("action"),steps) && continue
+        dur = maximum(steps) do step
+            get(step,"time",0) + (haskey(step,"object") ? Int(dict.objects[step["object"]]["duration"]) : 0)
         end
+        push!(steps,Dict{String,Any}("action" => "mark","time" => dur))
     end
+    @debug "Assigned missing mark events" log_instructions(dict.instructions)...
 
-    @debug "" dict.instructions["block_SE"]["steps"]
-
-    # Flatten instructions: unroll loops and run_block actions into a flat step list
-    @debug "Unrolling instructions..."
     steps = deepcopy(dict.instructions["main"]["steps"])
     idx = 1
+    @debug "Unrolling and flattening instructions" length(steps)
     while idx ≤ length(steps)
         step = steps[idx]
         action = step["action"]
@@ -192,10 +148,9 @@ function read_seq_mtrk(filename)
         end
     end
 
-    @debug "Before offsets" steps[1:10]
-
     # update times to reflect global timing
     offset = zero(first(steps)["time"])
+    @debug "Unrolled instructions; applying global offsets" length(steps)
     for step in steps
         new_time = step["time"]+offset
         step["time"] = new_time
@@ -204,32 +159,27 @@ function read_seq_mtrk(filename)
         end
     end
 
-    @debug "After offsets, before filtering" steps[1:10]
-
     # keep relevant events and sort by start time
+    @debug "Filtering for relevant events and sorting" length(steps)
     filter!(∈(("rf","grad","adc"))∘_getindex("action"),steps)
     sort!(steps,by=_getindex("time"))
 
-    @debug "After filtering" steps[1:10]
-
     # get amplitudes, durations, and stop times
-    @debug "Processing individual steps..."
-    gammabar = 42.58e6 # Hz/T
+    gammabar = 42.577e6 # Hz/T
     gamma = 2π*gammabar
+    @debug "Processing individual steps" length(steps) γ̄=gammabar
     for step in steps
         action = step["action"]
         obj = dict.objects[step["object"]]
         step["duration"] = obj["duration"]
         step["stop"] = step["time"]+step["duration"]
         if action == "rf"
-            # Calculate RF pulse amplitude array
             data = map(Float64,dict.arrays[obj["array"]]["data"])
             @views mag, phase = data[1:2:end], data[2:2:end]
             dt = 1e-6*step["duration"]/length(mag)
             amplitude = deg2rad(obj["flipangle"]).*(mag./(sum(mag)*gamma*dt)).*cis.(phase)
             step["amplitude"] = amplitude
         elseif action == "grad"
-            # Calculate gradient amplitude array, possibly evaluating equations
             if haskey(step,"amplitude")
                 amplitude = step["amplitude"]
                 if amplitude == "flip"
@@ -248,12 +198,8 @@ function read_seq_mtrk(filename)
             step["amplitude"] = array
 
             Δt = step["duration"]÷length(array)
-            if step["time"] ≤ 10
-                @debug "" step["duration"] length(array) Δt
-            end
             iszero(Δt) && throw(ArgumentError("gradient array length exceeds step length (duration in μs)"))
         elseif action == "adc"
-            # Set number of ADC samples
             step["samples"] = obj["samples"]
         end
     end
@@ -267,7 +213,7 @@ function read_seq_mtrk(filename)
     # Initialize empty sequence containers for each channel
     seq = StructVector{@NamedTuple{read::Grad,phase::Grad,slice::Grad,rf::RF,adc::ADC,dur::Float64}}(undef,0)
     sizehint!(seq,length(all_times)-1)
-    @debug "Iterating over all event times"
+    @debug "Generating Sequence object"
     i = firstindex(all_times)
     actions = ("read","phase","slice","rf","adc")
     while i < lastindex(all_times)
@@ -275,48 +221,36 @@ function read_seq_mtrk(filename)
         filter!(>(start)∘_getindex("stop"),steps)
         j = i
         counts = (0,0,0,0,0)
-        group = Vector{Any}[]
         while j < lastindex(all_times)
             stop = all_times[j]
-            upper = searchsortedlast(steps,Dict{String,Any}("time"=>stop-1);by=_getindex("time"))
-            lower = _findfirst(≤(start)∘_getindex("time"),view(steps,Base.OneTo(upper)))
-            group = deepcopy(view(steps,lower:upper))
+            group = block_steps(steps,start,stop)
             counts = Tuple(count(==(l)∘_getindex("action"),group) for l in actions)
-            if any(>(1),counts)
-                break
-            else
-                j += 1
-            end
+            any(>(1),counts) && break
+            j += 1
         end
         while j ≥ i && any(>(1),counts)
             j -= 1
             stop = all_times[j]
-            upper = searchsortedlast(steps,Dict{String,Any}("time"=>stop-1);by=_getindex("time"))
-            lower = _findfirst(≤(start)∘_getindex("time"),view(steps,Base.OneTo(upper)))
-            group = deepcopy(view(steps,lower:upper))
+            group = block_steps(steps,start,stop)
             counts = Tuple(count(==(l)∘_getindex("action"),group) for l in actions)
         end
         stop = all_times[j]
-        if i < 50
-        @debug "Processing events for t ∈ [$start,$stop) μs" i:j counts
-        end
+        group = deepcopy(block_steps(steps,start,stop))
         channels = Tuple(filter(==(l)∘_getindex("action"),group) for l in actions)
-        A = (getamp.(channels[1:3])..., getamp(channels[4],ComplexF64), isempty(channels[5]) ? 0 : only(channels[5])["samples"])
-        durs = map(c->isempty(c) ? stop-start : only(c)["duration"],channels)
-        delays = map(c->isempty(c) ? 0 : only(c)["time"]-start,channels)
-        # If any channel is active, create a new sequence step; otherwise, accumulate delay
-        dur_us = stop-start
-        dur = dur_us*1e-6
+        A = (getamp.(channels[1:3])..., getamp(channels[4],ComplexF64), isempty(channels[5]) ? 0 : Int(only(channels[5])["samples"]))
+        durs   = 1e-6 .* map(c->isempty(c) ? stop-start : Int(only(c)["duration"]),channels)
+        delays = 1e-6 .* map(c->isempty(c) ? 0 : Int(only(c)["time"])-start,channels)
+        dur    = 1e-6 * (stop-start)
         if any(!iszero,A)
             new_step = (;
-                 read=Grad(A[1],1e-6durs[1]),
-                phase=Grad(A[2],1e-6durs[2]),
-                slice=Grad(A[3],1e-6durs[3]),
-                   rf=  RF(A[4],1e-6durs[4]),
-                  adc= ADC(A[5],1e-6durs[5]),
+                 read=Grad(A[1],durs[1]),
+                phase=Grad(A[2],durs[2]),
+                slice=Grad(A[3],durs[3]),
+                   rf=  RF(A[4],durs[4]),
+                  adc= ADC(A[5],durs[5]),
                   dur
             )
-            foreach((k,delay)->setfield!(getfield(new_step,k),:delay,1e-6*delay),keys(A),delays)
+            foreach((k,delay)->setfield!(getfield(new_step,k),:delay,delay),keys(A),delays)
             push!(seq,new_step)
         end
         i = max(j,i+1)
@@ -324,7 +258,7 @@ function read_seq_mtrk(filename)
     grad = stack((seq.read,seq.phase,seq.slice);dims=1)
     sequence = Sequence(grad,reshape(seq.rf,1,:),seq.adc,seq.dur)
     
-    ## Fill sequence header with metadata from the file
+    ## fill sequence header with metadata from the file
     fov = dict.infos["fov"] * 1e-3
     sliceThickness = dict.objects["rf_excitation"]["thickness"] * 1e-3
     sequence.DEF["FOV"] = [fov, fov, sliceThickness]
@@ -343,17 +277,4 @@ function read_seq_mtrk(filename)
     @info "$sequence"
 
     return sequence
-end
-
-# Helper: findfirst, but throw if not found
-function _findfirstorthrow(f::Function,itr::A) where {A}
-    i = findfirst(f,itr)
-    isnothing(i) && throw(ArgumentError("findfirst returned nothing"))
-    return i
-end
-
-
-function _findfirst(f::Function,itr::A) where {A}
-    i = findfirst(f,itr)
-    return isnothing(i) ? nextind(itr,lastindex(itr)) : i
 end

@@ -8,10 +8,10 @@ using Logging
 using KomaInterface
 
 mtrk = with_logger(ConsoleLogger(stdout,Logging.Debug;show_limited=false)) do
-	KomaInterface.read_seq(joinpath(@__DIR__,"../makeitKOMA/data/mtrk_spoiled_gre.mtrk"))
+	KomaInterface.read_seq(joinpath(@__DIR__,"../../makeitKOMA/data/mtrk_spoiled_gre.mtrk"))
 end
 ##
-pulseq = KomaInterface.read_seq(joinpath(@__DIR__,"../makeitKOMA/data/mtrk_spoiled_gre.seq"))
+pulseq = KomaInterface.read_seq(joinpath(@__DIR__,"../../makeitKOMA/data/mtrk_spoiled_gre.seq"))
 
 ##
 n = 128
