@@ -1,6 +1,6 @@
 name = "KomaInterface"
 uuid = "9794c921-2f20-4b80-af8f-6c29bed33f82"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["José E. Cruz Serrallés <Jose.CruzSerralles@nyulangone.org>", "Eros Montin <Eros.Montin@nyulangone.org>"]
 
 [deps]
@@ -12,6 +12,9 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+
+[weakdeps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 
 [compat]
 ArgParse = "1.2.0"
