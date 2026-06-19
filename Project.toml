@@ -1,6 +1,6 @@
 name = "KomaInterface"
 uuid = "9794c921-2f20-4b80-af8f-6c29bed33f82"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["José E. Cruz Serrallés <Jose.CruzSerralles@nyulangone.org>", "Eros Montin <Eros.Montin@nyulangone.org>"]
 
 [deps]
