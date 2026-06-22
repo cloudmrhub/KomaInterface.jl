@@ -15,6 +15,11 @@ StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
 
 [weakdeps]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
+
+[extensions]
+KomaInterfaceMetalExt = "Metal"
+KomaInterfaceCUDAExt = "CUDA"
 
 [compat]
 ArgParse = "1.2.0"
@@ -25,3 +30,5 @@ LinearAlgebra = "1.12.0"
 Logging = "1.11.0"
 NPZ = "0.4.3"
 StructArrays = "0.7.3"
+Metal = "1"
+CUDA = "6"

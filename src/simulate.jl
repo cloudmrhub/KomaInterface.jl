@@ -87,6 +87,7 @@ function save_results(raw, directory::String, B0::Float64, R::AbstractMatrix, fo
     return Np, Nf
 end
 
+const _extensions = (:KomaInterfaceCUDAExt, :KomaInterfaceMetalExt)
 function main()
     aps = ArgParseSettings()
     @add_arg_table! aps begin
@@ -132,15 +133,10 @@ function main()
     # GPU
     GPU::Bool = args["gpu"]
     if GPU
-        println("GPU mode requested — loading CUDA backend...")
-        try
-            @eval using CUDA
-            println("CUDA loaded: $(CUDA.name(CUDA.device()))")
-        catch e
-            @warn "CUDA.jl not available or no GPU found: $e — falling back to CPU"
-            println(stderr, "\n[ERROR] GPU was requested but CUDA failed to load: $e")
-            println(stderr, "  Install KomaMRIGPU.jl and ensure CUDA drivers are visible.\n")
-            global GPU = false
+        @info "GPU mode requested; loading compatible backend..." extensions=_extensions
+        if all(isnothing,Base.get_extension(@__MODULE__,ext) for ext in _extensions)
+            @warn "Unable to find suitable GPU backend. Defaulting to CPU. GPU packages must be loaded explicitly prior to using `simulate`. e.g. `using CUDA` on Windows/Linux or `using Metal` on macOS"
+            GPU = false
         end
     end
 
