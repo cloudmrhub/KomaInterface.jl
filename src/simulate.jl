@@ -42,7 +42,7 @@ function rescale_fov!(seq::Sequence, scale::Vararg{Float64,N}) where {N}
     for j in axes(seq.GR,2),i in 1:N
         g = seq.GR[i,j]
         all(iszero,g.A) && continue
-        seq.GR[i,j] = typeof(g)(g.A .* scale[i], g.T, g.rise, g.fall, g.delay)
+        seq.GR[i,j] = Grad(g.A .* scale[i], g.T, g.rise, g.fall, g.delay, g.first, g.last)
     end
 end
 
