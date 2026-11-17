@@ -103,7 +103,8 @@ function read_seq_mtrk(filename)
         steps = block["steps"]
         any(step["action"] ∈ ("loop","run_block") for step in steps) && continue
         filter!(∈(("rf","grad","adc","mark"))∘_getindex("action"),steps)
-        any(≠("mark")∘_getindex("action"),steps) && continue
+        isempty(steps) && continue
+        any(==("mark")∘_getindex("action"),steps) && continue
         dur = maximum(steps) do step
             get(step,"time",0) + (haskey(step,"object") ? Int(dict.objects[step["object"]]["duration"]) : 0)
         end
@@ -219,8 +220,9 @@ function read_seq_mtrk(filename)
     while i < lastindex(all_times)
         start = all_times[i]
         filter!(>(start)∘_getindex("stop"),steps)
-        j = i
+        j = i+1
         counts = (0,0,0,0,0)
+        @debug "Before searching" i j counts
         while j < lastindex(all_times)
             stop = all_times[j]
             group = block_steps(steps,start,stop)
@@ -228,12 +230,14 @@ function read_seq_mtrk(filename)
             any(>(1),counts) && break
             j += 1
         end
-        while j ≥ i && any(>(1),counts)
+        @debug "After first search" i j counts
+        while j > i && any(>(1),counts)
             j -= 1
             stop = all_times[j]
             group = block_steps(steps,start,stop)
             counts = Tuple(count(==(l)∘_getindex("action"),group) for l in actions)
         end
+        i ≥ j && throw(AssertionError("error parsing block: unable to find window starting at $start μs that contains at most 1 Gy event, 1 Gy event, 1 Gz event, and 1 RF event"))
         stop = all_times[j]
         group = deepcopy(block_steps(steps,start,stop))
         channels = Tuple(filter(==(l)∘_getindex("action"),group) for l in actions)
@@ -242,6 +246,10 @@ function read_seq_mtrk(filename)
         delays = 1e-6 .* map(c->isempty(c) ? 0 : Int(only(c)["time"])-start,channels)
         dur    = 1e-6 * (stop-start)
         if any(!iszero,A)
+            @debug "Generating new step..." amplitudes=A durations=durs start stop
+            for (k,c) in enumerate(channels)
+                @debug "$k" channel=c
+            end
             new_step = (;
                  read=Grad(A[1],durs[1]),
                 phase=Grad(A[2],durs[2]),
